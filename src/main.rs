@@ -2,6 +2,8 @@ mod shobu;
 mod tests;
 mod zobrist;
 mod shobu_move;
+mod bot;
+mod bot_constants;
 use crate::zobrist::Zobrist;
 use crate::shobu::Shobu;
 use crate::shobu::BLACK;

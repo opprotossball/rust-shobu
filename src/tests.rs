@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::shobu::{self, Shobu};
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use crate::{shobu::{self, Shobu, TILES, WHITE}, shobu_move::{self, internal_2_readable, readable_2_internal, Move}};
 
     #[test]
     fn test_position_strings() {
@@ -35,4 +36,123 @@ mod tests {
             assert_eq!(moves.len(), n_moves[i])
         }
     }
+
+    #[test]
+    fn test_readable_2_internal() {
+        for tile in (0..16).into_iter() {
+            assert_eq!(readable_2_internal(tile), TILES[tile]);
+        }
+    }
+
+    #[test]
+    fn test_internal_2_readable() {
+        for (i, tile) in TILES.into_iter().enumerate() {
+            assert_eq!(internal_2_readable(tile), i);
+        }
+    }
+
+    #[test]
+    fn test_move_notation_black() {
+        let encoded = "2Uw14h13";
+        let active_player = -1;
+        let mv = Move::from_string(encoded, active_player).unwrap();
+        assert!(mv.double);
+        assert_eq!(mv.board_1, 1);
+        assert_eq!(mv.board_2, 0);
+        assert_eq!(mv.direction, -6);
+        assert_eq!(mv.from_1, 27);
+        assert_eq!(mv.from_2, 26);
+    }
+
+    
+    #[test]
+    fn test_move_notation_white() {
+        let encoded = "2DLw3f2";
+        let active_player = 1;
+        let mv = Move::from_string(encoded, active_player).unwrap();
+        assert!(mv.double);
+        assert_eq!(mv.board_1, 3);
+        assert_eq!(mv.board_2, 0);
+        assert_eq!(mv.direction, 5);
+        assert_eq!(mv.from_1, 10);
+        assert_eq!(mv.from_2, 9);
+    }
+
+    #[test]
+    fn test_making_moves() {
+        let moves = ["2Uw14h13"];
+        let end_position = "w wwww_b______b_bb wwww__b_____bb_b wwww________bbbb wwww________bbbb";
+        let mut game = Shobu::new();
+        for mv_str in moves {
+            let mv = Move::from_string(&mv_str, game.active_player).unwrap();
+            game.make_move(&mv).unwrap();
+        }
+        assert_eq!(game.pieces[0][0], [25, 14, 27, 28]);
+        assert_eq!(game.to_string(), end_position);
+    }
+
+    #[test]
+    fn test_making_moves_whole_game() {
+        let moves = ["2Uw14h13", "2DLw3f2", "2Ub14h13", "Db0h9", "2Ub15h12", "2DRw0h4", "Db7h6", "Db1h10", "Db6h10", "Lb2h13", "Uw14h10", "Rb1h14"];
+        let end_position = "b ww_w__b_w__bb___ wwwwbb____b____b __ww_w______bbwb _ww_________w__w";
+        let winner = WHITE;
+        let mut game = Shobu::new();
+        for mv_str in moves {
+            let mv: Move = Move::from_string(&mv_str, game.active_player).unwrap();
+            game.make_move(&mv).unwrap();
+        }
+        assert_eq!(game.to_string(), end_position);
+        assert_eq!(game.winner, winner);
+    }
+
+    #[test]
+    fn test_undo_move() {
+        let n_moves = 16;
+        let n_undos = 4;
+        let seeds = [2137, 789, 8, 45, 123];
+        for seed in seeds {
+            let mut game = Shobu::new();
+            let mut rand = StdRng::seed_from_u64(seed);
+            let mut pos = "".to_string();
+            for i in 0..n_moves {
+                if i == n_moves - n_undos {
+                    pos = game.to_string();
+                }
+                let moves = game.get_legal_moves();
+                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+            }
+            for _ in 0..n_undos {
+                game.undo_move();
+            }
+            assert_eq!(game.to_string(), pos);
+        }
+    }
+
+    #[test]
+    fn test_pieces_undo() {
+        let position = "b w_www_______bb_b wwww________bbbb wwww________bbbb www__bw_____bbb_";
+        let mut game = Shobu::from_string(position);
+        let n_moves = 40;
+        let seed = 2137;
+        let mut rand = StdRng::seed_from_u64(seed);
+        for _ in 0..n_moves {
+            let moves = game.get_legal_moves();
+            let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+        }
+        for _ in 0..n_moves {
+            game.undo_move();
+        }
+        assert_eq!(game.to_string(), position);
+        assert_eq!(game.pieces[1][0], [7, 9, 10, 13]);
+    }
+
+    // #[test]
+    // fn gen_pos() {
+    //     let g = Shobu::new();
+    //     for mv in g.get_legal_moves() {
+    //         let mut game = Shobu::new();
+    //         game.make_move(&mv);
+    //         println!("{}", game.to_string());
+    //     }
+    // }
 }

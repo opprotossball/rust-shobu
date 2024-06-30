@@ -12,12 +12,12 @@ pub const TILES: [usize; 16] = [
 ];
 pub const DIRECTIONS: [i8; 8] = [-6, -5, 1, 7, 6, 5, -1, -7];
 
-#[derive(Debug)]
 pub struct Shobu {
     pub active_player: i8,
     pub winner: i8,
     pub boards: [[i8; 36]; 4],
     pub pieces: [[[usize; 4]; 4]; 2],
+    pub history: Vec<(Move, usize, usize)>
 }
 
 fn occupied(val: i8) -> bool {
@@ -30,13 +30,109 @@ impl Shobu {
             active_player: BLACK,
             winner: 0,
             boards: [[MARGIN; 36]; 4],
-            pieces: [[[NOT_ON_BOARD; 4]; 4]; 2] 
+            pieces: [[[NOT_ON_BOARD; 4]; 4]; 2],
+            history: Vec::new()
         };
         new.init();
         new
     }
 
-    pub fn is_legal(&self, mv: Move) -> bool {
+    pub fn make_move(&mut self, mv: &Move) -> Result<(), String> {
+        if self.winner != 0 { return Err("Game is over!".to_string()); }
+        if !self.is_legal(mv) { return Err("Illegal move!".to_string()); }
+        self.make_move_unsafe(mv);
+        return Ok(());
+    }
+
+    pub fn make_move_unsafe(&mut self, mv: &Move) {
+        let pushed_from_1 = self.move_on_board_unsafe(mv.board_1, mv.direction, mv.from_1, mv.double);
+        let pushed_from_2 = self.move_on_board_unsafe(mv.board_2, mv.direction, mv.from_2, mv.double);
+        self.active_player = -self.active_player;
+        // add to history
+        if pushed_from_1 != NOT_ON_BOARD {
+            self.history.push((mv.deep_copy(), mv.board_1, pushed_from_1))
+        } else {
+            // if push occured on board_2 or neither move was push
+            self.history.push((mv.deep_copy(),  mv.board_2, pushed_from_2))
+        }
+    }
+
+    pub fn undo_move(&mut self) {
+        self.winner = 0;
+        self.active_player = -self.active_player;
+        let (mv, pushed_board, pushed_from) = self.history.pop().unwrap();
+        let diff = shobu_move::diff(mv.direction, mv.double);
+        // undo moves
+        self.boards[mv.board_1][mv.from_1] = self.active_player;
+        self.boards[mv.board_1][(mv.from_1 as i8 + diff) as usize] = EMPTY;
+        self.update_piece_check_winner(self.active_player, mv.board_1, (mv.from_1 as i8 + diff) as usize, mv.from_1);
+        self.boards[mv.board_2][mv.from_2] = self.active_player;
+        self.boards[mv.board_2][(mv.from_2 as i8 + diff) as usize] = EMPTY;
+        self.update_piece_check_winner(self.active_player, mv.board_2, (mv.from_2 as i8 + diff) as usize, mv.from_2);
+        // undo push
+        if pushed_from != NOT_ON_BOARD {
+            self.boards[pushed_board][pushed_from] = -self.active_player;
+            let pushed_to = if pushed_board == mv.board_1 {
+                (mv.from_1 as i8 + diff + mv.direction) as usize
+            } else {
+                (mv.from_2 as i8 + diff + mv.direction) as usize
+            };
+            if self.boards[pushed_board][pushed_to] == MARGIN {
+                self.update_piece_check_winner(-self.active_player, pushed_board, NOT_ON_BOARD, pushed_from);
+            } else {
+                self.boards[pushed_board][pushed_to] = EMPTY;
+                self.update_piece_check_winner(-self.active_player, pushed_board, pushed_to, pushed_from);
+            }
+        }
+    }
+
+    fn move_on_board_unsafe(&mut self, board_id: usize, direction: i8, from: usize, double: bool) -> usize {
+        let diff = shobu_move::diff(direction, double);
+        let to = (from as i8 + diff) as usize;
+        let board = &mut self.boards[board_id];
+        let mut pushed_from = NOT_ON_BOARD;
+        if occupied(board[to]) { pushed_from = to }
+        // push
+        let jump_over = (from as i8 + direction) as usize;
+        if  double && occupied(board[jump_over]) {
+            pushed_from = jump_over;
+            board[jump_over] = EMPTY;
+        }
+        board[from] = EMPTY;
+        board[to] = self.active_player;
+        if pushed_from != NOT_ON_BOARD {
+            let mut pushed_to = (to as i8 + direction) as usize;
+            if board[pushed_to] == MARGIN {
+                pushed_to = NOT_ON_BOARD;
+            } else {
+                board[pushed_to] = -self.active_player;
+            }
+            self.update_piece_check_winner(-self.active_player, board_id, pushed_from, pushed_to)
+        }
+        self.update_piece_check_winner(self.active_player, board_id, from, to);
+        pushed_from
+    }
+
+    fn update_piece_check_winner(&mut self, player: i8, board_id: usize, from: usize, to: usize) {
+        let pieces = &mut self.pieces[if player == BLACK {0} else {1}][board_id];
+        // for winner check
+        let mut piece_count = 0;
+        // for debug purposes
+        let mut found = false;
+        for i in 0..pieces.len() {
+            if pieces[i] == from && !found{ 
+                found = true;
+                pieces[i] = to;
+            }
+            if pieces[i] != NOT_ON_BOARD { piece_count += 1; }
+        }
+        if piece_count == 0 { self.winner = -player }
+        if !found { 
+            panic!("Updating position of piece not in list!") 
+        }
+    }
+
+    pub fn is_legal(&self, mv: &Move) -> bool {
         let board_sum = mv.board_1 + mv.board_2;
         // boards have the same color
         if board_sum % 2 == 0 { return false; }
@@ -90,13 +186,13 @@ impl Shobu {
                         } else if self.active_player == WHITE && board_sum != 5 {
                             if (board_1 > 1 && push_1) || (board_2 > 1 && push_2) { continue; }
                         }
-                        let res = Move {
+                        let res: Move = Move {
                             board_1: board_1,
                             board_2: board_2,
                             direction: direction,
                             from_1: piece_1,
                             from_2: piece_2,
-                            double: double
+                            double: double,
                         };
                         out.push(res);
                     }
@@ -116,7 +212,7 @@ impl Shobu {
         let mut pieces_on_path = 0;
         // check target tile
         if occupied(board[to]) {
-            if board[to] == self.active_player { println!("{}", to); return (false, false); }
+            if board[to] == self.active_player { return (false, false); }
             pieces_on_path += 1;
         }
         // if double check tile on path
@@ -155,7 +251,8 @@ impl Shobu {
             active_player: BLACK,
             winner: 0,
             boards: [[MARGIN; 36]; 4],
-            pieces: [[[0; 4]; 4]; 2] 
+            pieces: [[[0; 4]; 4]; 2],
+            history: Vec::new() 
         };
         let pos = string.split(" ");
         for (i, part) in pos.into_iter().enumerate() {
