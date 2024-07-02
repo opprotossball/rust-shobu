@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, Rng, SeedableRng};
-    use crate::{shobu::{self, Shobu, TILES, WHITE}, shobu_move::{self, internal_2_readable, readable_2_internal, Move}};
+    use crate::{bot::ShobuBot, shobu::{self, Shobu, TILES, WHITE}, shobu_move::{internal_2_readable, readable_2_internal, Move}, zobrist::Zobrist};
 
     #[test]
     fn test_position_strings() {
@@ -146,6 +146,62 @@ mod tests {
         assert_eq!(game.pieces[1][0], [7, 9, 10, 13]);
     }
 
+    #[test]
+    fn test_extended_move_to_string() {
+        let encoded = "URb12h12";
+        let game = Shobu::new();
+        let mv = Move::from_string(&encoded, game.active_player).unwrap();
+        let move_ext = game.validate_and_extend(&mv).unwrap();
+        assert_eq!(move_ext.to_string(game.active_player), encoded);
+    }
+
+    #[test]
+    fn test_win_in_1_move() {
+        let positions = [
+            "b w_b_____________ wb______________ wb______________ wb______________", 
+            "w bw______________ bw______________ b_w_____________ bw______________"
+        ];
+        let winners = [-1, 1];
+        for (winner, position) in std::iter::zip(winners, positions) {
+            let mut game = Shobu::from_string(position);
+            let mut bot = ShobuBot::new();
+            let mv = bot.choose_move(&mut game);
+            let mut validation_game = Shobu::from_string(position);
+            validation_game.make_move(&mv).unwrap();
+            assert_eq!(validation_game.winner, winner);
+        }
+    }
+
+    #[test]
+    fn test_zobrist_color_swap() {
+        let zobrist = Zobrist::new();
+        let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
+        let position_2 = "b wb______________ w_b_____________ w______________b wb______________";
+        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
+        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), true, false);
+        assert_eq!(hash_1, hash_2);
+    }
+
+    #[test]
+    fn test_zobrist_horizontal_swap() {
+        let zobrist = Zobrist::new();
+        let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
+        let position_2 = "b _b_w____________ __bw____________ __bw____________ ___w________b___";
+        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
+        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), false, true);
+        assert_eq!(hash_1, hash_2);
+    }
+
+    #[test]
+    fn test_zobrist_horizontal_and_color_swap() {
+        let zobrist = Zobrist::new();
+        let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
+        let position_2 = "b __bw____________ _b_w____________ ___w________b___ __bw____________";
+        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
+        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), true, true);
+        assert_eq!(hash_1, hash_2);
+    }
+
     // #[test]
     // fn gen_pos() {
     //     let g = Shobu::new();
@@ -155,4 +211,5 @@ mod tests {
     //         println!("{}", game.to_string());
     //     }
     // }
+
 }

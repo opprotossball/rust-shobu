@@ -49,6 +49,14 @@ impl MoveExtended {
         }
     }
 
+    pub fn new(mv: &Move, push_1: bool, push_2: bool) -> Self {
+        MoveExtended {
+            mv: mv.deep_copy(),
+            push_1: push_1,
+            push_2: push_2
+        }
+    }
+
     pub fn to_move(&self) -> Move {
         Move {
             board_1: self.mv.board_1,
@@ -71,14 +79,14 @@ impl MoveExtended {
         } else {
             encoded.push('w');
         }
-        let passive_from = if passive_board == self.mv.board_1 { self.mv.from_1 } else { self.mv.from_2 };
+        let passive_from = internal_2_readable(if passive_board == self.mv.board_1 { self.mv.from_1 } else { self.mv.from_2 });
         encoded.push_str(passive_from.to_string().as_str());
         if self.mv.board_1 + self.mv.board_2 == 3 {
             encoded.push('f');
         } else {
             encoded.push('h');
         }
-        let aggressive_from = if aggressive_board == self.mv.board_1 { self.mv.from_1 } else { self.mv.from_2 };
+        let aggressive_from = internal_2_readable(if aggressive_board == self.mv.board_1 { self.mv.from_1 } else { self.mv.from_2 });
         encoded.push_str(aggressive_from.to_string().as_str());
         encoded
     }
@@ -86,6 +94,10 @@ impl MoveExtended {
 }
 
 impl Move {
+
+    // pub fn create_symmetric(&self, color_swap: bool, horizontal_swap: bool) -> Self {
+    //     self.deep_copy()
+    // }
 
     pub fn deep_copy(&self) -> Self {
         Move {

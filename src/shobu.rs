@@ -1,4 +1,4 @@
-use crate::shobu_move::{self, Move};
+use crate::{shobu_move::{self, Move, MoveExtended}, zobrist::Zobrist};
 pub const BLACK: i8 = -1;
 pub const WHITE: i8 = 1;
 pub const EMPTY: i8 = 0;
@@ -17,7 +17,8 @@ pub struct Shobu {
     pub winner: i8,
     pub boards: [[i8; 36]; 4],
     pub pieces: [[[usize; 4]; 4]; 2],
-    pub history: Vec<(Move, usize, usize)>
+    pub history: Vec<(Move, usize, usize)>,
+    zobrist: Zobrist
 }
 
 fn occupied(val: i8) -> bool {
@@ -31,15 +32,20 @@ impl Shobu {
             winner: 0,
             boards: [[MARGIN; 36]; 4],
             pieces: [[[NOT_ON_BOARD; 4]; 4]; 2],
-            history: Vec::new()
+            history: Vec::new(),
+            zobrist: Zobrist::new()
         };
         new.init();
         new
     }
 
+    pub fn get_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
+        self.zobrist.get_hash(&self, color_swap, horizontal_swap)
+    }
+
     pub fn make_move(&mut self, mv: &Move) -> Result<(), String> {
         if self.winner != 0 { return Err("Game is over!".to_string()); }
-        if !self.is_legal(mv) { return Err("Illegal move!".to_string()); }
+        let _ = self.validate_and_extend(&mv)?;
         self.make_move_unsafe(mv);
         return Ok(());
     }
@@ -132,26 +138,27 @@ impl Shobu {
         }
     }
 
-    pub fn is_legal(&self, mv: &Move) -> bool {
+    pub fn validate_and_extend(&self, mv: &Move) -> Result<MoveExtended, String> {
+        let error_msg = "Move is invalid!";
         let board_sum = mv.board_1 + mv.board_2;
         // boards have the same color
-        if board_sum % 2 == 0 { return false; }
+        if board_sum % 2 == 0 { return Err(error_msg.to_string()); }
         // both boards are on opponent's side
-        if self.active_player == BLACK && board_sum > 3 { return false; }
-        if self.active_player == WHITE && board_sum < 3 { return false; }
+        if self.active_player == BLACK && board_sum > 3 { return Err(error_msg.to_string()); }
+        if self.active_player == WHITE && board_sum < 3 { return Err(error_msg.to_string()); }
         let (legal_1, push_1) = self.is_legal_and_push(mv.board_1, mv.direction, mv.from_1, mv.double);
-        if !legal_1 { return false; }
+        if !legal_1 { return Err(error_msg.to_string()); }
         let (legal_2, push_2) = self.is_legal_and_push(mv.board_2, mv.direction, mv.from_2, mv.double);
-        if !legal_2 { return false; }
+        if !legal_2 { return Err(error_msg.to_string()); }
         // 2 aggressive moves
-        if push_1 && push_2 { return false; }
+        if push_1 && push_2 { return Err(error_msg.to_string()); }
         // aggressive move on home board
         if self.active_player == BLACK && board_sum != 1 {
-            if (mv.board_1 < 2 && push_1) || (mv.board_2 < 2 && push_2) { return false; }
+            if (mv.board_1 < 2 && push_1) || (mv.board_2 < 2 && push_2) { return Err(error_msg.to_string()); }
         } else if self.active_player == WHITE && board_sum != 5 {
-            if (mv.board_1 > 1 && push_1) || (mv.board_2 > 1 && push_2) { return false; }
+            if (mv.board_1 > 1 && push_1) || (mv.board_2 > 1 && push_2) { return Err(error_msg.to_string()); }
         }
-        true
+        Ok(MoveExtended::new(mv, push_1, push_2))
     }
 
     pub fn get_legal_moves(&self) -> Vec<Move> {
@@ -252,7 +259,8 @@ impl Shobu {
             winner: 0,
             boards: [[MARGIN; 36]; 4],
             pieces: [[[0; 4]; 4]; 2],
-            history: Vec::new() 
+            history: Vec::new(),
+            zobrist: Zobrist::new() 
         };
         let pos = string.split(" ");
         for (i, part) in pos.into_iter().enumerate() {
@@ -282,7 +290,7 @@ impl Shobu {
         };
         new
     }
-
+    
     fn init(&mut self) {
         for (i, board) in self.boards.iter_mut().enumerate() {
             let mut white_added: usize = 0;
