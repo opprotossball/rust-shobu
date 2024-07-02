@@ -121,7 +121,7 @@ mod tests {
                     pos = game.to_string();
                 }
                 let moves = game.get_legal_moves();
-                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())].mv);
             }
             for _ in 0..n_undos {
                 game.undo_move();
@@ -139,7 +139,7 @@ mod tests {
         let mut rand = StdRng::seed_from_u64(seed);
         for _ in 0..n_moves {
             let moves = game.get_legal_moves();
-            let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+            let _ = game.make_move(&moves[rand.gen_range(0..moves.len())].mv);
         }
         for _ in 0..n_moves {
             game.undo_move();
@@ -178,8 +178,8 @@ mod tests {
     fn test_zobrist_different() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b w_______b_______ w_b_____________ w______________b wb______________";
-        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, false);
+        let hash_1 = Shobu::from_string(position_1).hash;
+        let hash_2 = Shobu::from_string(position_2).hash;
         assert_ne!(hash_1, hash_2);
     }
 
@@ -187,8 +187,8 @@ mod tests {
     fn test_zobrist_color_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b wb______________ w_b_____________ w______________b wb______________";
-        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, false);
+        let hash_1 = Shobu::from_string(position_1).hash;
+        let hash_2 = Shobu::from_string(position_2).hash;
         assert_eq!(hash_1, hash_2);
     }
 
@@ -196,8 +196,8 @@ mod tests {
     fn test_zobrist_horizontal_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b _b_w____________ __bw____________ __bw____________ ___w________b___";
-        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(false, true);
+        let hash_1 = Shobu::from_string(position_1).hash;
+        let hash_2 = Shobu::from_string(position_2).hash;
         assert_eq!(hash_1, hash_2);
     }
 
@@ -205,8 +205,8 @@ mod tests {
     fn test_zobrist_horizontal_and_color_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b __bw____________ _b_w____________ ___w________b___ __bw____________";
-        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, true);
+        let hash_1 = Shobu::from_string(position_1).hash;
+        let hash_2 = Shobu::from_string(position_2).hash;
         assert_eq!(hash_1, hash_2);
     }
 
@@ -218,18 +218,18 @@ mod tests {
         for seed in seeds {
             let mut game = Shobu::new();
             let mut rand = StdRng::seed_from_u64(seed);
-            let mut hashes = [[0; 2]; 2];
+            let mut hash = 0;
             for i in 0..n_moves {
                 if i == n_moves - n_undos {
-                    hashes = game.hashes.clone();
+                    hash = game.hash;
                 }
                 let moves = game.get_legal_moves();
-                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())].mv);
             }
             for _ in 0..n_undos {
                 game.undo_move();
             }
-            assert_eq!(game.hashes, hashes);
+            assert_eq!(game.hash, hash);
         }
     }
 
@@ -238,7 +238,7 @@ mod tests {
         let mut game = Shobu::new();
         let mut bot = ShobuBot::new();
         let mv = bot.choose_move(&mut game);
-        let res = game.validate_and_extend(&mv).unwrap().to_string(game.active_player);
+        let _res = game.validate_and_extend(&mv).unwrap().to_string(game.active_player);
         assert!(true);
     }
 
@@ -291,7 +291,7 @@ mod tests {
 
         for s in unique_strings {
             let game = Shobu::from_string(&s);
-            let hash = game.get_combined_hash();
+            let hash = game.hash;
             if hash_map.contains_key(&hash) {
                 collision_count += 1;
             } else {
@@ -306,9 +306,19 @@ mod tests {
     fn test_hash_active_player_sensitive() {
         let position_1 = "b ww_w__b_w__bb___ wwwwbb____b____b __ww_w______bbwb _ww_________w__w";
         let position_2 = "w ww_w__b_w__bb___ wwwwbb____b____b __ww_w______bbwb _ww_________w__w";
-        let hash_1 = Shobu::from_string(position_1).get_combined_hash();
-        let hash_2 = Shobu::from_string(position_2).get_combined_hash();
+        let hash_1 = Shobu::from_string(position_1).hash;
+        let hash_2 = Shobu::from_string(position_2).hash;
         assert_ne!(hash_1, hash_2);
+    }
+
+    #[test]
+    fn test_available_direction_count() {
+        let game = Shobu::new();
+        assert_eq!(game.available_passive_directions(0, -1), 6);
+        let game = Shobu::from_string("b w_b_____________ wb______________ wb______________ wb__bb_________b");
+        assert_eq!(game.available_passive_directions(3, 1), 0);
+        let game = Shobu::from_string("b w_b_____________ wb______________ w__w________w__w wb__bb_________b");
+        assert_eq!(game.available_passive_directions(2, 1), 16);
     }
 
 }

@@ -17,6 +17,8 @@ pub const PSTS: [[f64; 36]; 2] = [
     ]
 ];
 
-pub const MAX_DEPTH: usize = 3;
+pub const INF: f64 = 1_000_000_000.0;
+pub const WIN_EVAL: f64 = 1_000_000.0;
+pub const MAX_DEPTH: usize = 4;
 pub const TT_SIZE: usize = 1_048_577;
-pub const PIECE_VALUE: f64 = 10.0;
+pub const MATERIAL: [f64; 5] = [-WIN_EVAL, 0.0, 15.0, 30.0, 40.0];
