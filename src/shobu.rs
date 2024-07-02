@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::{shobu_move::{self, Move, MoveExtended}};
+use crate::shobu_move::{self, internal_2_readable, Move, MoveExtended};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 pub const BLACK: i8 = -1;
@@ -15,7 +15,10 @@ pub const TILES: [usize; 16] = [
     25, 26, 27, 28
 ];
 pub const DIRECTIONS: [i8; 8] = [-6, -5, 1, 7, 6, 5, -1, -7];
-const SHIFTS: [usize; 8] = [3, 5, 7, 11, 13, 17, 19, 23];
+const SHIFTS: [[[usize; 8]; 2]; 2] = [
+    [[3, 5, 7, 11, 13, 17, 19, 23], [7, 11, 3, 5, 19, 23, 13, 17]],
+    [[5, 3, 11, 7, 17, 13, 23, 19], [11, 7, 5, 3, 23, 19, 17, 13]]
+];
 const ZOBRIST_TILES: [usize; 16] = [0, 1, 1, 0, 2, 3, 3, 2, 4, 5, 5, 4, 6, 7, 7, 6];
 
 pub struct Shobu {
@@ -24,9 +27,9 @@ pub struct Shobu {
     pub boards: [[i8; 36]; 4],
     pub pieces: [[[usize; 4]; 4]; 2],
     pub history: Vec<(Move, usize, usize)>,
-    piece_vals: [[u64; 8]; 2],
-    black_to_go: u64,
-    hashes: [[u64; 2]; 2]
+    piece_hash_vals: [[u64; 8]; 2],
+    black_active_hash: u64,
+    pub hashes: [[u64; 2]; 2]
 }
 
 fn occupied(val: i8) -> bool {
@@ -42,8 +45,8 @@ impl Shobu {
             boards: [[MARGIN; 36]; 4],
             pieces: [[[NOT_ON_BOARD; 4]; 4]; 2],
             history: Vec::new(),
-            piece_vals: rand.gen(),
-            black_to_go: rand.gen(),
+            piece_hash_vals: rand.gen(),
+            black_active_hash: rand.gen(),
             hashes: [[0; 2]; 2]
         };
         new.init();
@@ -51,7 +54,12 @@ impl Shobu {
         new
     }
 
-    pub fn get_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
+    pub fn get_combined_hash(&self) -> u64 {
+        let hash = if self.active_player == BLACK {self.black_active_hash} else {0};
+        hash ^ self.hashes[0][0] ^ self.hashes[0][1] ^ self.hashes[1][0] ^ self.hashes[1][1]
+    }
+
+    pub fn get_symmetry_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
         self.hashes[color_swap as usize][horizontal_swap as usize]
     }
 
@@ -73,7 +81,6 @@ impl Shobu {
             // if push occured on board_2 or neither move was push
             self.history.push((mv.deep_copy(),  mv.board_2, pushed_from_2))
         }
-        self.init_hashes();
     }
 
     pub fn undo_move(&mut self) {
@@ -83,13 +90,16 @@ impl Shobu {
         let diff = shobu_move::diff(mv.direction, mv.double);
         // undo moves
         self.boards[mv.board_1][mv.from_1] = self.active_player;
-        self.boards[mv.board_1][(mv.from_1 as i8 + diff) as usize] = EMPTY;
+        let to_1 = (mv.from_1 as i8 + diff) as usize;
+        self.boards[mv.board_1][to_1] = EMPTY;
         self.update_piece_check_winner(self.active_player, mv.board_1, (mv.from_1 as i8 + diff) as usize, mv.from_1);
         self.boards[mv.board_2][mv.from_2] = self.active_player;
-        self.boards[mv.board_2][(mv.from_2 as i8 + diff) as usize] = EMPTY;
+        let to_2 = (mv.from_2 as i8 + diff) as usize;
+        self.boards[mv.board_2][to_2] = EMPTY;
         self.update_piece_check_winner(self.active_player, mv.board_2, (mv.from_2 as i8 + diff) as usize, mv.from_2);
         // undo push
         if pushed_from != NOT_ON_BOARD {
+            self.update_hashes(-self.active_player, pushed_board, pushed_from);
             self.boards[pushed_board][pushed_from] = -self.active_player;
             let pushed_to = if pushed_board == mv.board_1 {
                 (mv.from_1 as i8 + diff + mv.direction) as usize
@@ -101,9 +111,13 @@ impl Shobu {
             } else {
                 self.boards[pushed_board][pushed_to] = EMPTY;
                 self.update_piece_check_winner(-self.active_player, pushed_board, pushed_to, pushed_from);
+                self.update_hashes(-self.active_player, pushed_board, pushed_to);
             }
         }
-        self.init_hashes();
+        self.update_hashes(self.active_player, mv.board_1, mv.from_1);
+        self.update_hashes(self.active_player, mv.board_1, to_1);
+        self.update_hashes(self.active_player, mv.board_2, mv.from_2);
+        self.update_hashes(self.active_player, mv.board_2, to_2);
     }
 
     fn move_on_board_unsafe(&mut self, board_id: usize, direction: i8, from: usize, double: bool) -> usize {
@@ -127,9 +141,15 @@ impl Shobu {
             } else {
                 board[pushed_to] = -self.active_player;
             }
-            self.update_piece_check_winner(-self.active_player, board_id, pushed_from, pushed_to)
+            self.update_piece_check_winner(-self.active_player, board_id, pushed_from, pushed_to);
+            // update hashes for pushed player
+            self.update_hashes(-self.active_player, board_id, pushed_from);
+            self.update_hashes(-self.active_player, board_id, pushed_to);
         }
         self.update_piece_check_winner(self.active_player, board_id, from, to);
+        // update hashes for active player
+        self.update_hashes(self.active_player, board_id, from);
+        self.update_hashes(self.active_player, board_id, to);
         pushed_from
     }
 
@@ -275,8 +295,8 @@ impl Shobu {
             boards: [[MARGIN; 36]; 4],
             pieces: [[[0; 4]; 4]; 2],
             history: Vec::new(),
-            piece_vals: rand.gen(),
-            black_to_go: rand.gen(),
+            piece_hash_vals: rand.gen(),
+            black_active_hash: rand.gen(),
             hashes: [[0; 2]; 2]
         };
         let pos = string.split(" ");
@@ -309,6 +329,20 @@ impl Shobu {
         new
     }
     
+    fn update_hashes(&mut self, player: i8, board_id: usize, tile: usize) {
+        if tile == NOT_ON_BOARD { return; }
+        let tile_id = internal_2_readable(tile);
+        let part_id: usize = 2 * board_id + (tile % 4) / 2;
+        let player_id = if player == BLACK {0} else {1};
+        for color_swap in [true, false] {
+            for horizontal_swap in [true, false] {
+                self.hashes[color_swap as usize][horizontal_swap as usize] 
+                    ^= self.piece_hash_vals[player_id][ZOBRIST_TILES[tile_id]] 
+                    << SHIFTS[color_swap as usize][horizontal_swap as usize][part_id];
+            }
+        }
+    }
+
     fn init(&mut self) {
         for (i, board) in self.boards.iter_mut().enumerate() {
             let mut white_added: usize = 0;
@@ -343,35 +377,22 @@ impl Shobu {
     }
 
     pub fn calculate_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
-        let mut shifts = SHIFTS.clone();
-        if horizontal_swap {
-            for i in 0..4 {
-                shifts.swap(2 * i, 2 * i + 1)
-            }
-        }
-        if color_swap {
-            for i in 0..8 {
-                if i % 4 < 2 {
-                    shifts.swap(i, i + 2);
-                }
-            }
-        }
-        let mut hash = if self.active_player == BLACK {self.black_to_go} else {0};
-        for (part_hash, shift) in zip(self.parts_hash(), shifts) {
-            hash ^= part_hash << shift; 
+        let mut hash = if self.active_player == BLACK {self.black_active_hash} else {0};
+        for part_hash in self.parts_hash(&SHIFTS[horizontal_swap as usize][color_swap as usize]) {
+            hash ^= part_hash;
         }
         hash
     }
 
-    fn parts_hash(&self) -> [u64; 8] {
+    fn parts_hash(&self, shifts: &[usize; 8]) -> [u64; 8] {
         let mut parts = [0; 8];
         for (i, board) in self.boards.into_iter().enumerate() {
             for j in 0..16 {
                 let part_id: usize = 2 * i + (j % 4) / 2;
                 if board[TILES[j]] == BLACK {
-                    parts[part_id] ^= self.piece_vals[0][ZOBRIST_TILES[j]];
+                    parts[part_id] ^= self.piece_hash_vals[0][ZOBRIST_TILES[j]] << shifts[part_id];
                 } else if board[TILES[j]] == WHITE {
-                    parts[part_id] ^= self.piece_vals[1][ZOBRIST_TILES[j]];
+                    parts[part_id] ^= self.piece_hash_vals[1][ZOBRIST_TILES[j]] << shifts[part_id];
                 }
             }
         }

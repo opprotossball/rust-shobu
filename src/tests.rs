@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::seq::SliceRandom;
+    use std::collections::{HashMap, HashSet};
     use crate::{bot::ShobuBot, shobu::{self, Shobu, TILES, WHITE}, shobu_move::{internal_2_readable, readable_2_internal, Move}};
 
     #[test]
@@ -173,11 +175,20 @@ mod tests {
     }
 
     #[test]
+    fn test_zobrist_different() {
+        let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
+        let position_2 = "b w_______b_______ w_b_____________ w______________b wb______________";
+        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, false);
+        assert_ne!(hash_1, hash_2);
+    }
+
+    #[test]
     fn test_zobrist_color_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b wb______________ w_b_____________ w______________b wb______________";
-        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).calculate_hash(true, false);
+        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, false);
         assert_eq!(hash_1, hash_2);
     }
 
@@ -185,8 +196,8 @@ mod tests {
     fn test_zobrist_horizontal_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b _b_w____________ __bw____________ __bw____________ ___w________b___";
-        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).calculate_hash(false, true);
+        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(false, true);
         assert_eq!(hash_1, hash_2);
     }
 
@@ -194,19 +205,110 @@ mod tests {
     fn test_zobrist_horizontal_and_color_swap() {
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b __bw____________ _b_w____________ ___w________b___ __bw____________";
-        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
-        let hash_2 = Shobu::from_string(position_2).calculate_hash(true, true);
+        let hash_1 = Shobu::from_string(position_1).get_symmetry_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).get_symmetry_hash(true, true);
         assert_eq!(hash_1, hash_2);
     }
 
-    // #[test]
-    // fn gen_pos() {
-    //     let g = Shobu::new();
-    //     for mv in g.get_legal_moves() {
-    //         let mut game = Shobu::new();
-    //         game.make_move(&mv);
-    //         println!("{}", game.to_string());
-    //     }
-    // }
+    #[test]
+    fn test_zobrist_update() {
+        let n_moves = 16;
+        let n_undos = 4;
+        let seeds = [2137, 789, 8, 45, 123];
+        for seed in seeds {
+            let mut game = Shobu::new();
+            let mut rand = StdRng::seed_from_u64(seed);
+            let mut hashes = [[0; 2]; 2];
+            for i in 0..n_moves {
+                if i == n_moves - n_undos {
+                    hashes = game.hashes.clone();
+                }
+                let moves = game.get_legal_moves();
+                let _ = game.make_move(&moves[rand.gen_range(0..moves.len())]);
+            }
+            for _ in 0..n_undos {
+                game.undo_move();
+            }
+            assert_eq!(game.hashes, hashes);
+        }
+    }
+
+    #[test]
+    fn test_returns_valid_move() {
+        let mut game = Shobu::new();
+        let mut bot = ShobuBot::new();
+        let mv = bot.choose_move(&mut game);
+        let res = game.validate_and_extend(&mv).unwrap().to_string(game.active_player);
+        assert!(true);
+    }
+
+    fn generate_segment<R: Rng>(rng: &mut R) -> String {
+        let mut segment = Vec::new();
+        let w_len = rng.gen_range(1..=4);
+        segment.extend(vec!['w'; w_len]);
+        let remaining_length = 16 - w_len;
+        let b_len = rng.gen_range(1..=4).min(remaining_length / 2);
+        let underscores_after_w = remaining_length - b_len;
+        segment.extend(vec!['_'; underscores_after_w]);
+        segment.extend(vec!['b'; b_len]);
+        while segment.len() < 16 {
+            segment.push('_');
+        }
+        segment.shuffle(rng);
+        segment.iter().collect()
+    }
+    
+    fn generate_string<R: Rng>(rng: &mut R) -> String {
+        let mut result = String::new();
+        for i in 0..4 {
+            let segment = generate_segment(rng);
+            result.push_str(&segment);
+            if i != 3 {
+                result.push(' ');
+            }
+        }
+        result
+    }
+    
+    fn generate_unique_strings(num: usize) -> Vec<String> {
+        let mut rng = rand::thread_rng();
+        let mut unique_strings = HashSet::new();
+        let prefix_chars = ['b', 'w'];
+        while unique_strings.len() < num {
+            let prefix = prefix_chars.choose(&mut rng).unwrap();
+            let new_string = format!("{} {}", prefix, generate_string(&mut rng));
+            unique_strings.insert(new_string);
+        }
+        unique_strings.into_iter().collect()
+    }
+
+    #[test]
+    fn test_collisions() {
+        let num_strings = 10000;
+        let unique_strings = generate_unique_strings(num_strings);
+        let mut hash_map = HashMap::new();
+        let mut collision_count = 0;
+
+        for s in unique_strings {
+            let game = Shobu::from_string(&s);
+            let hash = game.get_combined_hash();
+            if hash_map.contains_key(&hash) {
+                collision_count += 1;
+            } else {
+                hash_map.insert(hash, s);
+            }
+        }
+        println!("Number of collisions: {}", collision_count);
+        assert_eq!(collision_count, 0, "There were collisions in the hashes!");
+    }
+
+    #[test]
+    fn test_hash_active_player_sensitive() {
+        let position_1 = "b ww_w__b_w__bb___ wwwwbb____b____b __ww_w______bbwb _ww_________w__w";
+        let position_2 = "w ww_w__b_w__bb___ wwwwbb____b____b __ww_w______bbwb _ww_________w__w";
+        let hash_1 = Shobu::from_string(position_1).get_combined_hash();
+        let hash_2 = Shobu::from_string(position_2).get_combined_hash();
+        assert_ne!(hash_1, hash_2);
+    }
 
 }

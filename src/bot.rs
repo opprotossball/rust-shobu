@@ -1,10 +1,7 @@
 use crate::shobu::*;
 use crate::bot_constants::*;
 use crate::shobu_move::Move;
-use crate::tt_entry;
 use crate::tt_entry::TTEntry;
-use std::cmp::min;
-use std::cmp::max;
 use rustc_hash::FxHashMap;
 use std::io;
 use crate::utils;
@@ -19,6 +16,7 @@ pub struct ShobuBot {
     piece_value: f64,
     psts: [[f64; 36]; 2],
     tt_size: usize,
+    negamax_calls: usize
 }
 
 impl ShobuBot {
@@ -29,6 +27,7 @@ impl ShobuBot {
             psts: PSTS,
             tt_size: TT_SIZE,
             tt: FxHashMap::default(),
+            negamax_calls: 0
         }
     }
 
@@ -80,19 +79,14 @@ impl ShobuBot {
         eval
     }
 
-    // (entry, is_color_swap, is_horizontal_swap)
-    fn get_transposition(&mut self, position: &Shobu, depth: usize) -> Option<(&TTEntry, bool, bool)> {
-        for color_swap in [false, true] {
-            for horizontal_swap in [false, true] {
-                match self.tt.get(&position.get_hash(color_swap, horizontal_swap)) {
-                    Some(entry) => {
-                        if entry.depth >= depth {
-                            return Some((entry, color_swap, horizontal_swap))
-                        }
-                    },
-                    None => ()
+    fn get_transposition(&mut self, position: &Shobu, depth: usize) -> Option<&TTEntry> {
+        match self.tt.get(&position.get_combined_hash()) {
+            Some(entry) => {
+                if entry.depth >= depth && position.get_combined_hash() == entry.hash {
+                    return Some(entry)
                 }
-            }
+            },
+            None => ()
         }
         None
     }
@@ -100,17 +94,19 @@ impl ShobuBot {
     fn negamax(&mut self, position: &mut Shobu, depth: usize, alpha_prev: f64, beta_prev: f64, active_player: i8) -> f64 {
         let mut alpha = alpha_prev;
         let mut beta = beta_prev;
-
+        self.negamax_calls += 1;
         match self.get_transposition(position, depth) {
-            Some((entry, color_swap, horizontal_swap)) => 'found: {
-                //if entry.depth < depth { break 'found; }
+            Some(entry) => {
                 match entry.flag {
                     EXACT => return entry.eval,
                     LOWERBOUND => alpha = f64::max(alpha, entry.eval),
                     UPPERBOUND => beta = f64::min(beta, entry.eval),
                     _ => ()
                 }
-                if alpha >= beta { return entry.eval; }
+                if alpha >= beta
+                { 
+                    return entry.eval; 
+                }
             },
             None => ()
         }
@@ -138,7 +134,7 @@ impl ShobuBot {
         let flag = if best_eval <= alpha_prev { UPPERBOUND }
             else if best_eval >= beta { LOWERBOUND }
             else { EXACT };
-        let hash = position.get_hash(false, false); 
+        let hash = position.get_combined_hash(); 
         let new_entry = TTEntry::new(hash, best_eval, flag, best_move, depth);
         self.tt.insert(hash, new_entry);
 
