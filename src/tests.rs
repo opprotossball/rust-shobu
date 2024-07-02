@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, Rng, SeedableRng};
-    use crate::{bot::ShobuBot, shobu::{self, Shobu, TILES, WHITE}, shobu_move::{internal_2_readable, readable_2_internal, Move}, zobrist::Zobrist};
+    use crate::{bot::ShobuBot, shobu::{self, Shobu, TILES, WHITE}, shobu_move::{internal_2_readable, readable_2_internal, Move}};
 
     #[test]
     fn test_position_strings() {
@@ -174,31 +174,28 @@ mod tests {
 
     #[test]
     fn test_zobrist_color_swap() {
-        let zobrist = Zobrist::new();
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b wb______________ w_b_____________ w______________b wb______________";
-        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
-        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), true, false);
+        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).calculate_hash(true, false);
         assert_eq!(hash_1, hash_2);
     }
 
     #[test]
     fn test_zobrist_horizontal_swap() {
-        let zobrist = Zobrist::new();
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b _b_w____________ __bw____________ __bw____________ ___w________b___";
-        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
-        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), false, true);
+        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).calculate_hash(false, true);
         assert_eq!(hash_1, hash_2);
     }
 
     #[test]
     fn test_zobrist_horizontal_and_color_swap() {
-        let zobrist = Zobrist::new();
         let position_1 = "b w_b_____________ wb______________ wb______________ w______________b";
         let position_2 = "b __bw____________ _b_w____________ ___w________b___ __bw____________";
-        let hash_1 = zobrist.get_hash(&Shobu::from_string(position_1), false, false);
-        let hash_2 = zobrist.get_hash(&Shobu::from_string(position_2), true, true);
+        let hash_1 = Shobu::from_string(position_1).calculate_hash(false, false);
+        let hash_2 = Shobu::from_string(position_2).calculate_hash(true, true);
         assert_eq!(hash_1, hash_2);
     }
 

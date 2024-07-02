@@ -5,7 +5,7 @@ use crate::tt_entry;
 use crate::tt_entry::TTEntry;
 use std::cmp::min;
 use std::cmp::max;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::io;
 use crate::utils;
 use crate::tt_entry::*;
@@ -14,11 +14,11 @@ const INF: f64 = 1_000_000_000.0;
 const WIN_EVAL: f64 = 1_000_000.0;
 
 pub struct ShobuBot {
-    tt: HashMap<u64, TTEntry>,
+    tt: FxHashMap<u64, TTEntry>,
     max_depth: usize,
     piece_value: f64,
     psts: [[f64; 36]; 2],
-    tt_size: usize 
+    tt_size: usize,
 }
 
 impl ShobuBot {
@@ -28,7 +28,7 @@ impl ShobuBot {
             piece_value: PIECE_VALUE,
             psts: PSTS,
             tt_size: TT_SIZE,
-            tt: HashMap::with_capacity(TT_SIZE)
+            tt: FxHashMap::default(),
         }
     }
 
@@ -81,11 +81,15 @@ impl ShobuBot {
     }
 
     // (entry, is_color_swap, is_horizontal_swap)
-    fn get_transposition(&self, position: &Shobu) -> Option<(&TTEntry, bool, bool)> {
+    fn get_transposition(&mut self, position: &Shobu, depth: usize) -> Option<(&TTEntry, bool, bool)> {
         for color_swap in [false, true] {
             for horizontal_swap in [false, true] {
                 match self.tt.get(&position.get_hash(color_swap, horizontal_swap)) {
-                    Some(entry) => return Some((entry, color_swap, horizontal_swap)),
+                    Some(entry) => {
+                        if entry.depth >= depth {
+                            return Some((entry, color_swap, horizontal_swap))
+                        }
+                    },
                     None => ()
                 }
             }
@@ -97,9 +101,9 @@ impl ShobuBot {
         let mut alpha = alpha_prev;
         let mut beta = beta_prev;
 
-        match self.get_transposition(position) {
+        match self.get_transposition(position, depth) {
             Some((entry, color_swap, horizontal_swap)) => 'found: {
-                if entry.depth < depth { break 'found; }
+                //if entry.depth < depth { break 'found; }
                 match entry.flag {
                     EXACT => return entry.eval,
                     LOWERBOUND => alpha = f64::max(alpha, entry.eval),
