@@ -2,6 +2,7 @@ use crate::shobu::*;
 use crate::bot_constants::*;
 use crate::shobu_move::Move;
 use crate::shobu_move::MoveExtended;
+use crate::symmetry;
 use crate::tt_entry::TTEntry;
 use rustc_hash::FxHashMap;
 use std::io;
@@ -44,7 +45,7 @@ impl ShobuBot {
         let mut best_move = 0;
         let mut best_eval = -INF;
         for i in 0..moves.len() {
-            position.make_move(&moves[i].mv).unwrap();
+            position.make_move_unsafe(&moves[i].mv);
             let eval = -self.negamax(position, self.max_depth-1, -INF, INF, position.active_player);
             position.undo_move();
             if eval > best_eval {
@@ -100,17 +101,36 @@ impl ShobuBot {
     fn moves_ordered(&mut self, position: &mut Shobu) -> Vec<MoveExtended> {
         let mut moves = position.get_legal_moves();
         moves.sort_by_key(|x| if x.push_1 || x.push_2 {0} else {1} );
+        match self.tt.get(&position.get_hash()) {
+            Some(entry) => {
+                match symmetry::transposition_symmetries(&position, entry) {
+                    Some((color_swap, horizontal_swap)) => {
+                        let tt_best = entry.best_move.to_symmetric(color_swap, horizontal_swap);
+                        match position.validate_and_extend(&tt_best) {
+                            Ok(mv) => {
+                                moves.push(mv);
+                                let last = moves.len() - 1;
+                                moves.swap(0, last);
+                            },
+                            Err(_) => ()
+                        }
+                    },
+                    None => ()
+                }
+            }
+            None => ()
+        }
         moves
     }
 
     fn moves_order_tt_lookup(&mut self, position: &mut Shobu, depth: usize) -> Vec<MoveExtended> {
         let mut move_evals = Vec::new();
-        let mut moves = position.get_legal_moves();
+        let moves = position.get_legal_moves();
         for mv in &moves {
             let mut eval = if mv.push_1 || mv.push_2 {-1000.0 + 1.0} else {-1000.0};
             if depth < self.max_depth - 1 {
-                _ = position.make_move(&mv.mv);
-                match self.tt.get(&position.hash) {
+                _ = position.make_move_unsafe(&mv.mv);
+                match self.tt.get(&position.get_hash()) {
                     Some(entry) => eval += entry.eval,
                     None => ()
                 }
@@ -125,9 +145,9 @@ impl ShobuBot {
     }
     
     fn get_transposition(&mut self, position: &Shobu, depth: usize) -> Option<&TTEntry> {
-        match self.tt.get(&position.hash) {
+        match self.tt.get(&position.get_hash()) {
             Some(entry) => {
-                if entry.depth >= depth && position.hash == entry.hash {
+                if entry.depth >= depth {
                     return Some(entry)
                 }
             },
@@ -162,15 +182,16 @@ impl ShobuBot {
         if depth == 0 {
             return position.active_player as f64 * self.eval(position);
         }
+        let moves = self.moves_ordered(position);
         let mut best_eval: f64 = -INF;
-        let mut best_move = 0;
-        for (i, mv) in self.moves_ordered(position).into_iter().enumerate() {
-            _ = position.make_move(&mv.mv);
+        let mut best_move = &moves[0].mv;
+        for i in 0..moves.len() {
+            position.make_move_unsafe(&moves[i].mv);
             let eval = -self.negamax(position, depth - 1, -beta, -alpha, -active_player);
             position.undo_move();
             if eval > best_eval {
                 best_eval = eval;
-                best_move = i;
+                best_move = &moves[i].mv;
             }
             alpha = f64::max(alpha, best_eval);
             if alpha >= beta { break; };
@@ -179,10 +200,8 @@ impl ShobuBot {
         let flag = if best_eval <= alpha_prev { UPPERBOUND }
             else if best_eval >= beta { LOWERBOUND }
             else { EXACT };
-        let hash = position.hash; 
-        let new_entry = TTEntry::new(hash, best_eval, flag, best_move, depth);
-        self.tt.insert(hash, new_entry);
-
+        let new_entry = TTEntry::new(position.get_symmetry_hash(false, false), best_eval, flag, depth, best_move.deep_copy());
+        self.tt.insert(position.get_hash(), new_entry);
         best_eval
     }
 }

@@ -1,3 +1,5 @@
+use std::hash;
+
 use crate::shobu_move::{self, internal_2_readable, Move, MoveExtended};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
@@ -25,7 +27,7 @@ pub struct Shobu {
     pub boards: [[i8; 36]; 4],
     pub pieces: [[[usize; 4]; 4]; 2],
     pub history: Vec<(Move, usize, usize)>,
-    pub hash: u64,
+    pub hashes: [[u64; 2]; 2],
     piece_hash_vals: [[u64; 8]; 2],
     black_active_hash: u64,
 }
@@ -45,10 +47,10 @@ impl Shobu {
             history: Vec::new(),
             piece_hash_vals: rand.gen(),
             black_active_hash: rand.gen(),
-            hash: 0
+            hashes: [[0; 2]; 2]
         };
         new.init();
-        new.init_hash();
+        new.init_hashes();
         new
     }
 
@@ -59,10 +61,27 @@ impl Shobu {
         return Ok(());
     }
 
+    pub fn get_hash(&self) -> u64 {
+        let mut hash = if self.active_player == BLACK {self.black_active_hash} else {0};
+        for color_swap in 0..=1 {
+            for horizontal_swap in 0..=1 {
+                hash ^= self.hashes[color_swap][horizontal_swap];
+            }
+        }
+        hash
+    }
+
+    pub fn get_symmetry_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
+        if self.active_player == BLACK {
+            self.hashes[color_swap as usize][horizontal_swap as usize] ^ self.black_active_hash
+        } else {
+            self.hashes[color_swap as usize][horizontal_swap as usize]
+        }
+    }
+
     pub fn make_move_unsafe(&mut self, mv: &Move) {
         let pushed_from_1 = self.move_on_board_unsafe(mv.board_1, mv.direction, mv.from_1, mv.double);
         let pushed_from_2 = self.move_on_board_unsafe(mv.board_2, mv.direction, mv.from_2, mv.double);
-        self.hash ^= self.black_active_hash;
         self.active_player = -self.active_player;
         // add to history
         if pushed_from_1 != NOT_ON_BOARD {
@@ -126,7 +145,6 @@ impl Shobu {
         self.update_hashes(self.active_player, mv.board_1, to_1);
         self.update_hashes(self.active_player, mv.board_2, mv.from_2);
         self.update_hashes(self.active_player, mv.board_2, to_2);
-        self.hash ^= self.black_active_hash;
     }
 
     fn move_on_board_unsafe(&mut self, board_id: usize, direction: i8, from: usize, double: bool) -> usize {
@@ -311,7 +329,7 @@ impl Shobu {
             history: Vec::new(),
             piece_hash_vals: rand.gen(),
             black_active_hash: rand.gen(),
-            hash: 0
+            hashes: [[0; 2]; 2]
         };
         let pos = string.split(" ");
         for (i, part) in pos.into_iter().enumerate() {
@@ -339,7 +357,7 @@ impl Shobu {
                 }
             }
         };
-        new.init_hash();
+        new.init_hashes();
         new
     }
     
@@ -348,11 +366,11 @@ impl Shobu {
         let tile_id = internal_2_readable(tile);
         let part_id: usize = 2 * board_id + (tile % 4) / 2;
         let player_id = if player == BLACK {0} else {1};
-        for color_swap in [true, false] {
-            for horizontal_swap in [true, false] {
-                self.hash 
+        for color_swap in 0..=1 {
+            for horizontal_swap in 0..=1 {
+                self.hashes[color_swap][horizontal_swap] 
                     ^= self.piece_hash_vals[player_id][ZOBRIST_TILES[tile_id]] 
-                    << SHIFTS[color_swap as usize][horizontal_swap as usize][part_id];
+                    << SHIFTS[color_swap][horizontal_swap][part_id];
             }
         }
     }
@@ -382,7 +400,7 @@ impl Shobu {
         }
     }
 
-    pub fn symmetry_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
+    fn calculate_symmetry_hash(&self, color_swap: bool, horizontal_swap: bool) -> u64 {
         let mut hash = if self.active_player == BLACK {self.black_active_hash} else {0};
         for part_hash in self.parts_hash(&SHIFTS[horizontal_swap as usize][color_swap as usize]) {
             hash ^= part_hash;
@@ -390,11 +408,10 @@ impl Shobu {
         hash
     }
 
-    fn init_hash(&mut self) {
-        self.hash = if self.active_player == BLACK {self.black_active_hash} else {0};
-        for color_swap in [true, false] {
-            for horizontal_swap in [true, false] {
-                self.hash ^= self.symmetry_hash(color_swap, horizontal_swap);
+    fn init_hashes(&mut self) {
+        for color_swap in [false, true] {
+            for horizontal_swap in [false, true] {
+                self.hashes[color_swap as usize][horizontal_swap as usize] ^= self.calculate_symmetry_hash(color_swap, horizontal_swap);
             }
         }
     }

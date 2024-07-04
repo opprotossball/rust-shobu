@@ -5,6 +5,7 @@ mod bot;
 mod bot_constants;
 mod utils;
 mod tt_entry;
+pub mod symmetry;
 
 use crate::bot::ShobuBot;
 use crate::shobu::Shobu;

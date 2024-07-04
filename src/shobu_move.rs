@@ -1,8 +1,10 @@
 use std::cmp::min;
 use std::cmp::max;
+use crate::shobu::Shobu;
 use crate::shobu::DIRECTIONS;
 use crate::shobu::BLACK;
 use crate::shobu::TILES;
+use crate::symmetry;
 pub const DIRECTION_CODES: [&str; 8] = ["U", "UR", "R", "DR", "D", "DL", "L", "UL"]; 
 
 pub struct Move {
@@ -95,9 +97,19 @@ impl MoveExtended {
 
 impl Move {
 
-    // pub fn create_symmetric(&self, color_swap: bool, horizontal_swap: bool) -> Self {
-    //     self.deep_copy()
-    // }
+    pub fn to_symmetric(&self, color_swap: bool, horizontal_swap: bool) -> Self {
+        let mut mv = self.deep_copy();
+        if color_swap {
+           mv.board_1 = symmetry::opposite_color_board(mv.board_1);
+           mv.board_2 = symmetry::opposite_color_board(mv.board_2);
+        }
+        if horizontal_swap {
+            mv.direction = symmetry::direction_flipped(mv.direction);
+            mv.from_1 = symmetry::tile_flipped(mv.from_1);
+            mv.from_2 = symmetry::tile_flipped(mv.from_2);
+        }
+        mv
+    }
 
     pub fn deep_copy(&self) -> Self {
         Move {
