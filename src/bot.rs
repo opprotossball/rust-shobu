@@ -7,10 +7,14 @@ use crate::tt_entry::TTEntry;
 use rustc_hash::FxHashMap;
 use std::io;
 use std::iter::zip;
+use std::time::SystemTime;
 use crate::utils;
 use crate::tt_entry::*;
+use std::collections::LinkedList;
 
 pub struct ShobuBot {
+    ms_per_move: u128,
+    use_time_percentage: f64,
     tt: FxHashMap<u64, TTEntry>,
     max_depth: usize,
     psts: [[f64; 36]; 2],
@@ -21,6 +25,8 @@ pub struct ShobuBot {
 impl ShobuBot {
     pub fn new() -> Self {
         ShobuBot {
+            ms_per_move: MS_PER_MOVE,
+            use_time_percentage: USE_TIME_PERCENTAGE,
             max_depth: MAX_DEPTH,
             psts: PSTS,
             tt_size: TT_SIZE,
@@ -41,19 +47,37 @@ impl ShobuBot {
     }
 
     pub fn choose_move(&mut self, position: &mut Shobu) -> Move {
-        let moves = position.get_legal_moves();
+        let start_time = SystemTime::now();
         let mut best_move = 0;
-        let mut best_eval = -INF;
-        for i in 0..moves.len() {
-            position.make_move_unsafe(&moves[i].mv);
-            let eval = -self.negamax(position, self.max_depth-1, -INF, INF, position.active_player);
-            position.undo_move();
-            if eval > best_eval {
-                best_eval = eval;
-                best_move = i;
+        let moves = position.get_legal_moves();
+        'iteration: for depth  in 1..=self.max_depth {
+            let mut iteration_best = 0;
+            let mut best_eval = -INF;
+            for i in 0..moves.len() {
+                position.make_move_unsafe(&moves[i].mv);
+                let eval = -self.negamax(position, depth-1, -INF, INF, position.active_player, start_time);
+                position.undo_move();
+                if eval > best_eval {
+                    best_eval = eval;
+                    iteration_best = i;
+                }
+                if self.time_is_ending(start_time) 
+                {
+                    break 'iteration;
+                }
             }
+            best_move = iteration_best;
         }
         moves[best_move].mv.deep_copy()
+    }
+
+    fn time_is_ending(&self, start_time: SystemTime) -> bool {
+        match start_time.elapsed() {
+            Ok(elapsed) => {
+                elapsed.as_millis() > (self.ms_per_move as f64 * self.use_time_percentage) as u128 
+            }
+            _ => true
+        }
     }
 
     fn mobility_score(&self, active_player: i8, position: &Shobu) -> f64 {
@@ -156,7 +180,11 @@ impl ShobuBot {
         None
     }
 
-    fn negamax(&mut self, position: &mut Shobu, depth: usize, alpha_prev: f64, beta_prev: f64, active_player: i8) -> f64 {
+    fn negamax(&mut self, position: &mut Shobu, depth: usize, alpha_prev: f64, beta_prev: f64, active_player: i8, start_time: SystemTime) -> f64 {
+        // if time is ending, return value wont be used
+        if self.time_is_ending(start_time) {
+            return 0.0;
+        }
         let mut alpha = alpha_prev;
         let mut beta = beta_prev;
         self.negamax_calls += 1;
@@ -187,7 +215,7 @@ impl ShobuBot {
         let mut best_move = &moves[0].mv;
         for i in 0..moves.len() {
             position.make_move_unsafe(&moves[i].mv);
-            let eval = -self.negamax(position, depth - 1, -beta, -alpha, -active_player);
+            let eval = -self.negamax(position, depth - 1, -beta, -alpha, -active_player, start_time);
             position.undo_move();
             if eval > best_eval {
                 best_eval = eval;

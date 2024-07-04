@@ -19,6 +19,9 @@ pub const PSTS: [[f64; 36]; 2] = [
 
 pub const INF: f64 = 1_000_000_000.0;
 pub const WIN_EVAL: f64 = 1_000_000.0;
-pub const MAX_DEPTH: usize = 5;
+pub const MAX_DEPTH: usize = 36;
 pub const TT_SIZE: usize = 1_048_577;
-pub const MATERIAL: [f64; 5] = [-WIN_EVAL, 0.0, 10.0, 21.0, 28.0];
+pub const MATERIAL: [f64; 5] = [-WIN_EVAL, 0.0, 15.0, 30.0, 40.0];
+pub const MS_PER_MOVE: u128 = 2000;
+pub const USE_TIME_PERCENTAGE: f64 = 0.97;
+//pub const MATERIAL: [f64; 5] = [-WIN_EVAL, 0.0, 10.0, 21.0, 28.0];
