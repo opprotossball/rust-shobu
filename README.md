@@ -1,0 +1,1 @@
+The aim of this project was to create a bot capable of playing abstract strategy game [SHŌBU](https://boardgamegeek.com/boardgame/272380/shobu) at relatively high level. I accomplished this by implementing minimax algorithm with extra  features known from chess algorithms as transposition tables, piece square tables, zobrist hashing & iterative deepening.
